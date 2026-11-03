@@ -12,7 +12,9 @@ import {
   providerVerifySchema,
   providerUpdateSchema,
   providerForgotPasswordSchema,
-  providerResetPasswordSchema
+  providerResetPasswordSchema,
+  businessDetailsSchema,
+  workerSchema
 } from "../validations/schemas.js";
 import { runInNewContext } from "vm";
 import { broadcastStats } from "../libs/socket.js";
@@ -38,7 +40,7 @@ export async function registerProvider(req, res) {
       });
     }
 
-    const { fullName, email, phoneNumber, password } = value;
+    const { fullName, email, phoneNumber, password, providerType = "individual", businessName = "" } = value;
 
     let provider = await Provider.findOne({
       $or: [
@@ -60,11 +62,13 @@ export async function registerProvider(req, res) {
     }
 
     provider = new Provider({
+      providerType,
       fullName,
       email: email.toLowerCase(),
       phoneNumber,
       password,
-      isVerified: true
+      isVerified: true,
+      businessDetails: businessName ? { businessName } : undefined
     });
 
     await provider.save();
@@ -105,6 +109,8 @@ export async function registerProvider(req, res) {
         fullName: provider.fullName,
         email: provider.email,
         phoneNumber: provider.phoneNumber,
+        providerType: provider.providerType,
+        applicationStatus: provider.applicationStatus,
         status: provider.status
       }
     });
@@ -341,7 +347,10 @@ export async function uploadDocuments(req, res) {
       { field: "profilePhoto", folder: "providers/profile" },
       { field: "governmentIDProof", folder: "providers/id" },
       { field: "addressProof", folder: "providers/address" },
-      { field: "skillCertificate", folder: "providers/skill", optional: true } // Explicitly marked as optional
+      { field: "skillCertificate", folder: "providers/skill", optional: true },
+      { field: "businessRegistrationProof", folder: "providers/business", optional: true },
+      { field: "tradeLicense", folder: "providers/trade_license", optional: true },
+      { field: "shopFrontPhoto", folder: "providers/shop", optional: true }
     ];
 
     const results = await Promise.all(
@@ -807,5 +816,149 @@ export async function resetPasswordProvider(req, res) {
   } catch (err) {
     console.error("Reset password error (Provider):", err);
     return res.status(StatusCodes.INTERNAL_SERVER_ERROR).json({ error: "Failed to reset password" });
+  }
+}
+
+/* =========================================================
+   BUSINESS DETAILS (PROTECTED)
+========================================================= */
+export async function saveBusinessDetails(req, res) {
+  try {
+    const { error, value } = businessDetailsSchema.validate(req.body);
+    if (error) {
+      return res.status(StatusCodes.BAD_REQUEST).json({ error: error.details[0].message });
+    }
+
+    const provider = await Provider.findById(req.user.sub);
+    if (!provider) {
+      return res.status(StatusCodes.NOT_FOUND).json({ error: "Provider not found" });
+    }
+
+    provider.providerType = "business";
+    provider.businessDetails = {
+      ...(provider.businessDetails || {}),
+      ...value
+    };
+
+    await provider.save();
+    return res.status(StatusCodes.OK).json({
+      message: "Business details saved successfully",
+      businessDetails: provider.businessDetails
+    });
+  } catch (err) {
+    console.error("Save Business Details Error:", err);
+    return res.status(StatusCodes.INTERNAL_SERVER_ERROR).json({ error: "Failed to save business details" });
+  }
+}
+
+/* =========================================================
+   WORKERS MANAGEMENT (PROTECTED - BUSINESS ONLY)
+========================================================= */
+export async function getWorkers(req, res) {
+  try {
+    const provider = await Provider.findById(req.user.sub).select("workers");
+    if (!provider) return res.status(StatusCodes.NOT_FOUND).json({ error: "Provider not found" });
+    return res.status(StatusCodes.OK).json({ workers: provider.workers || [] });
+  } catch (err) {
+    return res.status(StatusCodes.INTERNAL_SERVER_ERROR).json({ error: "Failed to fetch workers" });
+  }
+}
+
+export async function addWorker(req, res) {
+  try {
+    const { error, value } = workerSchema.validate(req.body);
+    if (error) return res.status(StatusCodes.BAD_REQUEST).json({ error: error.details[0].message });
+
+    const provider = await Provider.findById(req.user.sub);
+    if (!provider) return res.status(StatusCodes.NOT_FOUND).json({ error: "Provider not found" });
+
+    provider.workers.push(value);
+    await provider.save();
+
+    return res.status(StatusCodes.CREATED).json({
+      message: "Worker added successfully",
+      workers: provider.workers
+    });
+  } catch (err) {
+    console.error("Add Worker Error:", err);
+    return res.status(StatusCodes.INTERNAL_SERVER_ERROR).json({ error: "Failed to add worker" });
+  }
+}
+
+export async function deleteWorker(req, res) {
+  try {
+    const { workerId } = req.params;
+    const provider = await Provider.findById(req.user.sub);
+    if (!provider) return res.status(StatusCodes.NOT_FOUND).json({ error: "Provider not found" });
+
+    provider.workers = provider.workers.filter(w => w._id.toString() !== workerId);
+    await provider.save();
+
+    return res.status(StatusCodes.OK).json({
+      message: "Worker removed successfully",
+      workers: provider.workers
+    });
+  } catch (err) {
+    return res.status(StatusCodes.INTERNAL_SERVER_ERROR).json({ error: "Failed to remove worker" });
+  }
+}
+
+/* =========================================================
+   SUBMIT APPLICATION FOR REVIEW (PROTECTED)
+========================================================= */
+export async function submitApplication(req, res) {
+  try {
+    const provider = await Provider.findById(req.user.sub);
+    if (!provider) return res.status(StatusCodes.NOT_FOUND).json({ error: "Provider not found" });
+
+    provider.applicationStatus = "under_review";
+    provider.isRegistrationComplete = true;
+
+    await provider.save();
+
+    // Notify Admin of new/resubmitted application
+    try {
+      sendAdminNotification({
+        type: "provider_application_submitted",
+        title: "📄 Application Submitted for Review",
+        message: `${provider.fullName} (${provider.providerType}) has submitted their application for verification.`,
+        metadata: { providerId: provider._id.toString() }
+      });
+    } catch (_) {}
+
+    broadcastStats();
+
+    return res.status(StatusCodes.OK).json({
+      message: "Application submitted for review successfully",
+      applicationStatus: provider.applicationStatus
+    });
+  } catch (err) {
+    console.error("Submit Application Error:", err);
+    return res.status(StatusCodes.INTERNAL_SERVER_ERROR).json({ error: "Failed to submit application" });
+  }
+}
+
+/* =========================================================
+   REGISTRATION / APPLICATION STATUS (PROTECTED)
+========================================================= */
+export async function getRegistrationStatus(req, res) {
+  try {
+    const provider = await Provider.findById(req.user.sub).select(
+      "applicationStatus status isRegistrationComplete adminReviewNotes changesRequestedFields providerType currentStep fullName"
+    );
+    if (!provider) return res.status(StatusCodes.NOT_FOUND).json({ error: "Provider not found" });
+
+    return res.status(StatusCodes.OK).json({
+      applicationStatus: provider.applicationStatus,
+      status: provider.status,
+      isRegistrationComplete: provider.isRegistrationComplete,
+      adminReviewNotes: provider.adminReviewNotes || "",
+      changesRequestedFields: provider.changesRequestedFields || [],
+      providerType: provider.providerType,
+      currentStep: provider.currentStep,
+      fullName: provider.fullName
+    });
+  } catch (err) {
+    return res.status(StatusCodes.INTERNAL_SERVER_ERROR).json({ error: "Failed to fetch status" });
   }
 }

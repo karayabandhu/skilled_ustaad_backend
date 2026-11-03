@@ -15,7 +15,13 @@ import {
   saveDeviceToken,
   updateNotificationSound,
   forgotPasswordProvider,
-  resetPasswordProvider
+  resetPasswordProvider,
+  saveBusinessDetails,
+  getWorkers,
+  addWorker,
+  deleteWorker,
+  submitApplication,
+  getRegistrationStatus
 } from "../controllers/provider.controller.js";
 import { upload } from "../middleware/uploadMiddleware.js";
 import { requireAuth } from "../middleware/requireAuth.js";
@@ -53,6 +59,9 @@ router.post(
     {name:"governmentIDProof",maxCount:1},
     {name:"addressProof",maxCount:1}, 
     {name:"skillCertificate",maxCount:1},
+    {name:"businessRegistrationProof",maxCount:1},
+    {name:"tradeLicense",maxCount:1},
+    {name:"shopFrontPhoto",maxCount:1},
   ]),
   requireAuth,
   uploadDocuments,
@@ -63,6 +72,20 @@ router.post(
  */
 
 router.post("/bank-details", requireAuth, validate(bankSchema), saveBankDetails);
+
+/**
+ * Business Details & Workers (Business Provider flow)
+ */
+router.post("/business-details", requireAuth, saveBusinessDetails);
+router.get("/workers", requireAuth, getWorkers);
+router.post("/workers", requireAuth, addWorker);
+router.delete("/workers/:workerId", requireAuth, deleteWorker);
+
+/**
+ * Application Lifecycle & Review Submission
+ */
+router.post("/submit-application", requireAuth, submitApplication);
+router.get("/registration-status", requireAuth, getRegistrationStatus);
 
 /**
  * getProviderProfile

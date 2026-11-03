@@ -47,6 +47,7 @@ export const addressSchema = Joi.object({
 
 // Provider validation schemas
 export const providerRegisterSchema = Joi.object({
+  providerType: Joi.string().valid("individual", "business").default("individual").optional(),
   fullName: Joi.string().trim().min(2).max(100).pattern(/^[a-zA-Z\s]+$/).message('Full Name must contain only letters and spaces.').required(),
   email: Joi.string().trim().email().required(),
   phoneNumber: Joi.string()
@@ -58,6 +59,24 @@ export const providerRegisterSchema = Joi.object({
     .pattern(/^(?=.*[!@#$%^&*])/)
     .message('Password must be at least 8 characters and contain at least one special symbol (!@#$%^&*)')
     .required(),
+  businessName: Joi.string().trim().allow("").optional(),
+});
+
+export const businessDetailsSchema = Joi.object({
+  businessName: Joi.string().trim().min(2).max(120).required(),
+  registrationNumber: Joi.string().trim().allow("").optional(),
+  gstNumber: Joi.string().trim().allow("").optional(),
+  establishedYear: Joi.number().integer().min(1900).max(new Date().getFullYear() + 1).allow(null).optional(),
+  description: Joi.string().trim().allow("").optional(),
+  website: Joi.string().trim().allow("").optional(),
+});
+
+export const workerSchema = Joi.object({
+  name: Joi.string().trim().min(2).max(80).required(),
+  phoneNumber: Joi.string().trim().pattern(/^\+?[1-9]\d{7,14}$/).allow("").optional(),
+  role: Joi.string().trim().max(80).allow("").optional(),
+  photo: Joi.string().allow("").optional(),
+  idProof: Joi.string().allow("").optional(),
 });
 
 export const providerForgotPasswordSchema = Joi.object({

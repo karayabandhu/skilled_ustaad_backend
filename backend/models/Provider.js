@@ -3,6 +3,38 @@ import { encryptBankDetail, decryptBankDetail } from "../utils/encryption.js";
 
 const providerSchema = new mongoose.Schema(
   {
+    /* Provider Persona: individual vs business / shop owner */
+    providerType: {
+      type: String,
+      enum: ["individual", "business"],
+      default: "individual",
+      index: true
+    },
+
+    /* Business / Shop Owner Details (Optional for individual) */
+    businessDetails: {
+      businessName: { type: String, trim: true, default: "" },
+      registrationNumber: { type: String, trim: true, default: "" },
+      gstNumber: { type: String, trim: true, default: "" },
+      establishedYear: { type: Number, default: null },
+      description: { type: String, trim: true, default: "" },
+      shopPhotos: [{ type: String }],
+      website: { type: String, trim: true, default: "" }
+    },
+
+    /* Workers / Technicians (Optional for Business) */
+    workers: [
+      {
+        name: { type: String, trim: true, required: true },
+        phoneNumber: { type: String, trim: true, default: "" },
+        role: { type: String, trim: true, default: "" },
+        photo: { type: String, default: "" },
+        idProof: { type: String, default: "" },
+        isActive: { type: Boolean, default: true },
+        createdAt: { type: Date, default: Date.now }
+      }
+    ],
+
     /*Step 1 */
     fullName: { 
       type: String, 
@@ -118,6 +150,18 @@ const providerSchema = new mongoose.Schema(
       type: String, 
       default: "" 
     },
+    businessRegistrationProof: { 
+      type: String, 
+      default: "" 
+    },
+    tradeLicense: { 
+      type: String, 
+      default: "" 
+    },
+    shopFrontPhoto: { 
+      type: String, 
+      default: "" 
+    },
 
 
     /*Step-5 */
@@ -158,6 +202,31 @@ const providerSchema = new mongoose.Schema(
     isRegistrationComplete: {
       type: Boolean,
       default: false
+    },
+    /* Application Lifecycle State Machine */
+    applicationStatus: {
+      type: String,
+      enum: ["draft", "under_review", "changes_needed", "approved", "rejected"],
+      default: "draft",
+      index: true
+    },
+    adminReviewNotes: {
+      type: String,
+      default: ""
+    },
+    changesRequestedFields: [{
+      type: String
+    }],
+    reviewedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Admin"
+    },
+    reviewedAt: {
+      type: Date
+    },
+    currentStep: {
+      type: Number,
+      default: 1
     },
     jobs: { 
       type: Number, 
@@ -244,6 +313,8 @@ const providerSchema = new mongoose.Schema(
 
 providerSchema.index({ city: 1 });
 providerSchema.index({ status: 1 });
+providerSchema.index({ applicationStatus: 1 });
+providerSchema.index({ providerType: 1 });
 providerSchema.index({ deviceToken: 1 }, { sparse: true }); // Performance boost for notifications
 providerSchema.index({ location: "2dsphere" });
 

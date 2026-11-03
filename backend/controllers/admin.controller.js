@@ -339,12 +339,29 @@ export const updateCustomerStatus = async (req, res) => {
 -------------------------------------------------------------------*/
 export const updateProviderStatus = async (req, res) => {
   try {
-    const { status } = req.body;
-    const updateData = { status };
+    const { status, applicationStatus, reviewNotes, flaggedFields } = req.body;
+    const updateData = {};
 
-    // Auto-verify background if activating
-    if (status === "Active") {
+    if (status) updateData.status = status;
+    if (applicationStatus) updateData.applicationStatus = applicationStatus;
+
+    if (applicationStatus === "approved" || status === "Active") {
+      updateData.status = "Active";
+      updateData.applicationStatus = "approved";
       updateData.backgroundVerification = "Verified";
+      updateData.reviewedAt = new Date();
+      if (req.user?.sub) updateData.reviewedBy = req.user.sub;
+    } else if (applicationStatus === "changes_needed") {
+      updateData.applicationStatus = "changes_needed";
+      updateData.status = "Pending";
+      updateData.adminReviewNotes = reviewNotes || "";
+      if (Array.isArray(flaggedFields)) {
+        updateData.changesRequestedFields = flaggedFields;
+      }
+      updateData.reviewedAt = new Date();
+      if (req.user?.sub) updateData.reviewedBy = req.user.sub;
+    } else if (status === "Suspended") {
+      updateData.status = "Suspended";
     }
 
     const provider = await Provider.findByIdAndUpdate(
@@ -359,12 +376,19 @@ export const updateProviderStatus = async (req, res) => {
 
     // Real-time notification and database notification
     try {
-      if (status === "Active") {
+      if (updateData.applicationStatus === "approved" || status === "Active") {
         await ProviderNotification.create({
           providerId: provider._id,
           type: "profile_verification",
           title: "Profile Verified",
           message: "Your profile has been verified and activated by the admin! You can now start accepting bookings."
+        });
+      } else if (updateData.applicationStatus === "changes_needed") {
+        await ProviderNotification.create({
+          providerId: provider._id,
+          type: "profile_verification",
+          title: "Changes Needed in Registration",
+          message: reviewNotes || "Admin requested corrections to your registration details. Please update them in the app."
         });
       } else if (status === "Suspended") {
         await ProviderNotification.create({
